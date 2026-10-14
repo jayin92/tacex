@@ -12,35 +12,55 @@ from jaxrl2.utils.launch_util import (
 
 
 ENTITY = 'kiten'
-PROJECT_NAME = 'DSRL_pi0_Libero_May_15_16_00_Sweep_Libero_SAC'
+PROJECT_NAME = 'DSRL_pi0_Libero_May_26_17_30_Test_Touch_R5_AblateTouch'
 MODULE_NAME = 'examples.launch_train_sim'
 
+def _int_list_from_env(name, default):
+    value = os.environ.get(name, default)
+    return [int(v) for v in value.replace(',', ' ').split()]
+
+
+# Change to 'Piper' to launch Piper LIBERO experiments.
+LIBERO_ROBOT = 'Panda'
+TOUCH_GRIPPER_TYPE = (
+    'PiperGripper' if LIBERO_ROBOT == 'Piper' else 'PandaGripper'
+)
 
 # Edit this block to change the base experiment.
 BASE_FLAGS = {
     'algorithm': 'pixel_sac',
     'env': 'libero',
+    'libero_robot': LIBERO_ROBOT,
     'prefix': 'dsrl_pi0_libero',
     'wandb_project': PROJECT_NAME,
     'batch_size': 256,
     'discount': 0.999,
-    'max_steps': 250000,
+    'max_steps': 500000,
     'eval_interval': 20000,
+    'checkpoint_interval': 20000,
     'log_interval': 1000,
     'eval_episodes': 10,
     'multi_grad_step': 20,
     'start_online_updates': 500,
     'resize_image': 64,
+    'add_tactile': 1,
+    'use_touch': 1,
+    'tactile_shape': _int_list_from_env('tactile_shape', '32 64 3'),
     'action_magnitude': 1.0,
     'query_freq': 20,
     'hidden_dims': [128],
+    'tactile_hidden_dims': [256, 256],
+    'mask_touch': 0,
 }
 
 
 # Edit this block to choose the sweep. Values are combined as a Cartesian product.
 # For example, uncommenting dyn_ent_lr below launches every seed x dyn_ent_lr pair.
 SWEEP_FLAGS = {
-    'seed': [0,1,2],
+    'seed': [0,1,2,3,4,5,6,7,8,9],
+    'touch_gripper_type': [
+        TOUCH_GRIPPER_TYPE,
+    ],
     # 'dyn_ent_lr': [0.0001, 0.0003, 0.0],
     # 'init_dyn_ent_temperature': [0.1, 1.0, 0.00000001],
     # 'model_lr': [0.001, 0.0003, 0.0],
@@ -51,22 +71,20 @@ SWEEP_FLAGS = {
     # 'backup_entropy': [1, 0],
     # 'ensemble_disagreement_modalities': ['latent,state', ''],
     # 'mask_expl_critic': [1, 0],
+    'add_tactile': [0, 1],
     'libero_suite': ['libero_90'],
     'libero_task_id': [
         # Most similar to task 58: single-object pickup into tray/basket.
-        55, 56, 60, 61, 62,
-        46, 48, 49, 50, 51, 52, 53, 54,
-        # Drawer/cabinet manipulation and placement.
-        0, 8, 23, 24,
-        # Plate/tabletop placement and bowl stacking.
-        16, 36, 65, 69,
+        58,
         # Appliance/stove and shelf/top/under placement.
-        21, 35, 45,
-        # Caddy compartment placement.
-        73, 77, 84,
-        # Book shelf spatial relations.
-        86, 87, 89,
         ],
+}
+
+
+GRIPPER_STATE_INDICES = {
+    'Robotiq85TactileGripper': [0, 3],
+    'PandaGripper': [0, 1],
+    'PiperGripper': [0, 1],
 }
 
 
@@ -76,6 +94,8 @@ def build_flags(project_name):
         flags = copy.deepcopy(BASE_FLAGS)
         flags['wandb_project'] = project_name
         flags.update(sweep_flags)
+        flags['gripper_state_indices'] = GRIPPER_STATE_INDICES[
+            flags['touch_gripper_type']]
         flags.setdefault('suffix', make_suffix(flags, sweep_keys))
         yield flags
 
@@ -141,7 +161,13 @@ def main(args):
     pre_commands = [
         f'mkdir -p {shlex.quote(exp_dir)} {shlex.quote(slurm_dir)}',
     ]
-    env = {'EXP': exp_dir}
+    env = {
+        'EXP': exp_dir,
+        'MUJOCO_GL': 'egl',
+        'PYOPENGL_PLATFORM': 'egl',
+        'MUJOCO_EGL_DEVICE_ID': '0',
+        'XLA_PYTHON_CLIENT_PREALLOCATE': 'false',
+    }
 
     for flags in build_flags(args.project_name):
         command_list.append(
@@ -158,7 +184,7 @@ def main(args):
 
     duration = args.duration
     if duration is None:
-        duration = '23:59:00' if args.long_run else '3:59:00'
+        duration = '23:59:00' if args.long_run else '23:59:00'
 
     print(f'Prepared {len(command_list)} {args.mode} jobs.')
     generate_run_commands(

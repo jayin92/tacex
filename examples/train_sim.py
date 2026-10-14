@@ -1,5 +1,10 @@
 #! /usr/bin/env python
 import os
+
+from examples.sim_path_bootstrap import bootstrap_sim_paths
+
+bootstrap_sim_paths()
+
 # Tell XLA to use Triton GEMM, this improves steps/sec by ~30% on some GPUs from https://github.com/huggingface/gym-aloha/tree/main?tab=readme-ov-file#-gpu-rendering-egl
 xla_flags = os.environ.get('XLA_FLAGS', '')
 xla_flags += ' --xla_gpu_triton_gemm_any=True'
@@ -10,8 +15,11 @@ import pathlib, copy
 
 import jax
 from jaxrl2.agents.pixel_maxinfosac.pixel_maxinfosac_learner import PixelMaxinfoSACLearner
+from jaxrl2.agents.pixel_maxinfosac_taxel_sum.pixel_maxinfosac_taxel_sum_learner import PixelMaxinfoSACTaxelSumLearner
 from jaxrl2.agents.pixel_maxinfosac_explorer.pixel_maxinfosac_explorer import PixelMaxinfoSACExplorer
+from jaxrl2.agents.pixel_ppo.pixel_ppo_learner import PixelPPOLearner
 from jaxrl2.agents.pixel_sac.pixel_sac_learner import PixelSACLearner
+from jaxrl2.agents.pixel_sac_taxel_reward.pixel_sac_taxel_reward_learner import PixelSACTaxelRewardLearner
 from jaxrl2.utils.general_utils import add_batch_dim
 import numpy as np
 
@@ -19,15 +27,29 @@ import gymnasium as gym
 import gym_aloha
 from gym.spaces import Dict, Box
 
-from libero.libero.libero import benchmark
-from libero.libero.libero import get_libero_path
-from libero.libero.libero.envs import OffScreenRenderEnv
+from libero.libero import benchmark
+from libero.libero import get_libero_path
+from libero.libero.envs import OffScreenRenderEnv
 
 from jaxrl2.data import ReplayBuffer
 from jaxrl2.utils.wandb_logger import WandBLogger, create_exp_name
 import tempfile
 from functools import partial
-from examples.train_utils_sim import trajwise_alternating_training_loop
+from examples.train_utils_sim import (
+    DEFAULT_PI0_ACTION_HORIZON,
+    DEFAULT_PI0_NOISE_DIM,
+    action_bounds_to_config_list,
+    compute_residual_delta_bounds,
+    get_actual_action_dim,
+    get_dsrl_action_mode,
+    get_dsrl_action_shape,
+    get_env_action_bounds,
+    get_libero_state_dim,
+    get_tactile_shape,
+    infer_actual_action_dim,
+    trajwise_alternating_training_loop,
+)
+from examples.train_utils_ppo import trajwise_ppo_training_loop
 import tensorflow as tf
 from jax.experimental.compilation_cache import compilation_cache
 
@@ -40,10 +62,36 @@ compilation_cache.initialize_cache(os.path.join(home_dir, 'jax_compilation_cache
 
 
 LEARNER_BY_ALGORITHM = {
+    'pixel_ppo': PixelPPOLearner,
     'pixel_sac': PixelSACLearner,
+    'pixel_sac_taxel_reward': PixelSACTaxelRewardLearner,
     'pixel_maxinfosac': PixelMaxinfoSACLearner,
+    'pixel_maxinfosac_taxel_sum': PixelMaxinfoSACTaxelSumLearner,
     'pixel_maxinfosac_explorer': PixelMaxinfoSACExplorer,
 }
+
+PPO_TRAIN_KWARGS = (
+    'ppo_lr',
+    'ppo_rollout_steps',
+    'ppo_num_epochs',
+    'ppo_num_minibatches',
+    'ppo_clip_epsilon',
+    'ppo_gae_lambda',
+    'ppo_value_loss_coef',
+    'ppo_entropy_coef',
+    'ppo_max_grad_norm',
+    'ppo_target_kl',
+    'ppo_init_log_std',
+    'ppo_normalize_advantages',
+)
+
+
+def _resolve_touch_gripper_type(libero_robot, touch_gripper_type):
+    if (
+            str(libero_robot).endswith('Piper')
+            and touch_gripper_type in (None, 'default', 'Robotiq85TactileGripper')):
+        return 'PiperGripper'
+    return touch_gripper_type
 
 
 def _normalize_ensemble_disagreement_modalities(kwargs):
@@ -72,6 +120,8 @@ def _make_agent(variant, sample_obs, sample_action):
 
     learner_cls = LEARNER_BY_ALGORITHM[algorithm]
     kwargs = dict(variant['train_kwargs'])
+    if algorithm == 'pixel_ppo':
+        kwargs.update({key: variant[key] for key in PPO_TRAIN_KWARGS})
     _normalize_ensemble_disagreement_modalities(kwargs)
 
     valid_kwargs = set(inspect.signature(learner_cls.__init__).parameters)
@@ -90,11 +140,24 @@ def _make_agent(variant, sample_obs, sample_action):
                        **learner_kwargs)
 
 
-def _get_libero_env(task, resolution, seed):
+def _get_libero_env(
+        task,
+        resolution,
+        seed,
+        libero_robot="Panda",
+        use_touch=False,
+        touch_gripper_type="Robotiq85TactileGripper"):
     """Initializes and returns the LIBERO environment, along with the task description."""
     task_description = task.language
     task_bddl_file = pathlib.Path(get_libero_path("bddl_files")) / task.problem_folder / task.bddl_file
-    env_args = {"bddl_file_name": task_bddl_file, "camera_heights": resolution, "camera_widths": resolution}
+    env_args = {
+        "bddl_file_name": task_bddl_file,
+        "robots": [libero_robot],
+        "camera_heights": resolution,
+        "camera_widths": resolution,
+    }
+    if use_touch:
+        env_args["gripper_types"] = touch_gripper_type
     env = OffScreenRenderEnv(**env_args)
     env.seed(seed)  # IMPORTANT: seed seems to affect object positions even when using fixed initial state
     return env, task_description
@@ -123,12 +186,28 @@ class DummyEnv(gym.ObservationWrapper):
         obs_dict['pixels'] = Box(low=0, high=255, shape=self.image_shape, dtype=np.uint8)
         if variant.add_states:
             if variant.env == 'libero':
-                state_dim = 8
+                state_dim = get_libero_state_dim(variant)
             elif variant.env == 'aloha_cube':
                 state_dim = 14
             obs_dict['state'] = Box(low=-1.0, high=1.0, shape=(state_dim, 1), dtype=np.float32)
+        if getattr(variant, 'add_tactile', 0):
+            if variant.env != 'libero':
+                raise NotImplementedError('Tactile observations are only wired for LIBERO.')
+            tactile_shape = (*get_tactile_shape(variant), 1)
+            obs_dict['tactile'] = Box(
+                low=-np.inf,
+                high=np.inf,
+                shape=tactile_shape,
+                dtype=np.float32,
+            )
         self.observation_space = Dict(obs_dict)
-        self.action_space = Box(low=-1, high=1, shape=(1, 32,), dtype=np.float32) # 32 is the noise action space of pi 0
+        pi0_noise_dim = int(getattr(variant, 'pi0_noise_dim', DEFAULT_PI0_NOISE_DIM))
+        action_shape = get_dsrl_action_shape(
+            variant,
+            pi0_noise_dim=pi0_noise_dim,
+            actual_action_dim=get_actual_action_dim(variant),
+        )
+        self.action_space = Box(low=-1, high=1, shape=action_shape, dtype=np.float32)
 
 
 def main(variant):
@@ -172,7 +251,22 @@ def main(variant):
                 f"Supported suites: {supported_suites}.")
         task_suite = benchmark_dict[variant.libero_suite]()
         task = task_suite.get_task(variant.libero_task_id)
-        env, task_description = _get_libero_env(task, 256, variant.seed)
+        libero_robot = getattr(variant, 'libero_robot', 'Panda')
+        touch_gripper_type = getattr(
+            variant, 'touch_gripper_type', 'Robotiq85TactileGripper')
+        touch_gripper_type = _resolve_touch_gripper_type(
+            libero_robot,
+            touch_gripper_type,
+        )
+        variant.libero_robot = libero_robot
+        variant.touch_gripper_type = touch_gripper_type
+        env, task_description = _get_libero_env(
+            task,
+            256,
+            variant.seed,
+            libero_robot=libero_robot,
+            use_touch=bool(getattr(variant, 'use_touch', 0)),
+            touch_gripper_type=touch_gripper_type)
         eval_env = env
         variant.task_description = task_description
         print(
@@ -194,17 +288,33 @@ def main(variant):
         variant.env_max_reward = 4
         variant.max_timesteps = 400
         
+    variant.dsrl_action_mode = get_dsrl_action_mode(variant)
+    algorithm = str(variant.algorithm).strip().lower()
+    if algorithm == 'pixel_ppo' and variant.dsrl_action_mode != 'noise':
+        raise ValueError(
+            'DSRL-PPO is implemented for diffusion-noise steering only; set '
+            '--dsrl_action_mode noise.')
+    variant.actual_action_dim = infer_actual_action_dim(variant, env)
+    action_low, action_high = get_env_action_bounds(env, variant.actual_action_dim)
+    residual_delta_fraction = float(getattr(
+        variant,
+        'residual_delta_fraction',
+        0.1,
+    ))
+    variant.actual_action_low = action_bounds_to_config_list(action_low)
+    variant.actual_action_high = action_bounds_to_config_list(action_high)
+    variant.residual_delta_bounds = compute_residual_delta_bounds(
+        action_low,
+        action_high,
+        residual_delta_fraction,
+    ).tolist()
+    print(f"Using DSRL action mode: {variant.dsrl_action_mode}")
+    print(f"Actual env action dim: {variant.actual_action_dim}")
+    print(f"Residual delta bounds: {variant.residual_delta_bounds}")
 
     group_name = variant.prefix + '_' + variant.launch_group_id
     wandb_output_dir = tempfile.mkdtemp()
     wandb_logger = WandBLogger(variant.prefix != '', variant, variant.wandb_project, experiment_id=expname, output_dir=wandb_output_dir, group_name=group_name)
-
-    dummy_env = DummyEnv(variant)
-    sample_obs = add_batch_dim(dummy_env.observation_space.sample())
-    sample_action = add_batch_dim(dummy_env.action_space.sample())
-    print('sample obs shapes', [(k, v.shape) for k, v in sample_obs.items()])
-    print('sample action shape', sample_action.shape)
-    
 
     if variant.env == 'libero':
         config = openpi_config.get_config("pi0_libero")
@@ -216,11 +326,44 @@ def main(variant):
         raise NotImplementedError()
     agent_dp = policy_config.create_trained_policy(config, checkpoint_dir)
     print("Loaded pi0 policy from %s", checkpoint_dir)
+    variant.pi0_noise_dim = int(getattr(agent_dp, 'action_dim', DEFAULT_PI0_NOISE_DIM))
+    variant.pi0_action_horizon = int(getattr(agent_dp, 'action_horizon', DEFAULT_PI0_ACTION_HORIZON))
+
+    dummy_env = DummyEnv(variant)
+    sample_obs = add_batch_dim(dummy_env.observation_space.sample())
+    sample_action = add_batch_dim(dummy_env.action_space.sample())
+    print('sample obs shapes', [(k, v.shape) for k, v in sample_obs.items()])
+    print('sample action shape', sample_action.shape)
+
     agent = _make_agent(variant, sample_obs, sample_action)
 
-    online_buffer_size = variant.max_steps  // variant.multi_grad_step
-    online_replay_buffer = ReplayBuffer(dummy_env.observation_space, dummy_env.action_space, int(online_buffer_size))
-    replay_buffer = online_replay_buffer
-    replay_buffer.seed(variant.seed)
-    trajwise_alternating_training_loop(variant, agent, env, eval_env, online_replay_buffer, replay_buffer, wandb_logger, shard_fn=shard_fn, agent_dp=agent_dp)
+    if algorithm == 'pixel_ppo':
+        trajwise_ppo_training_loop(
+            variant,
+            agent,
+            env,
+            eval_env,
+            wandb_logger,
+            agent_dp=agent_dp,
+        )
+    else:
+        online_buffer_size = variant.max_steps // variant.multi_grad_step
+        online_replay_buffer = ReplayBuffer(
+            dummy_env.observation_space,
+            dummy_env.action_space,
+            int(online_buffer_size),
+        )
+        replay_buffer = online_replay_buffer
+        replay_buffer.seed(variant.seed)
+        trajwise_alternating_training_loop(
+            variant,
+            agent,
+            env,
+            eval_env,
+            online_replay_buffer,
+            replay_buffer,
+            wandb_logger,
+            shard_fn=shard_fn,
+            agent_dp=agent_dp,
+        )
  

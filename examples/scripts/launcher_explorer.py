@@ -13,25 +13,42 @@ from jaxrl2.utils.launch_util import (
 
 
 ENTITY = 'kiten'
-PROJECT_NAME = 'DSRL_pi0_Libero_March_11_23_55_rtx4090'
+PROJECT_NAME = 'DSRL_pi0_Libero_May_26_17_30_Test_Touch_R5_AblateTouch'
 MODULE_NAME = 'examples.launch_train_sim'
+
+
+def _int_list_from_env(name, default):
+    value = os.environ.get(name, default)
+    return [int(v) for v in value.replace(',', ' ').split()]
+
+
+# Change to 'Piper' to launch Piper LIBERO experiments.
+LIBERO_ROBOT = 'Panda'
+TOUCH_GRIPPER_TYPE = (
+    'PiperGripper' if LIBERO_ROBOT == 'Piper' else 'PandaGripper'
+)
 
 
 # base experiment.
 BASE_FLAGS = {
     'algorithm': 'pixel_maxinfosac_explorer',
     'env': 'libero',
+    'libero_robot': LIBERO_ROBOT,
     'prefix': 'dsrl_pi0_libero_maxinfo_explorer',
     'wandb_project': PROJECT_NAME,
     'batch_size': 256,
     'discount': 0.999,
     'max_steps': 500000,
     'eval_interval': 10000,
+    'checkpoint_interval': 10000,
     'log_interval': 500,
     'eval_episodes': 10,
     'multi_grad_step': 20,
     'start_online_updates': 500,
     'resize_image': 64,
+    'add_tactile': 1,
+    'use_touch': 1,
+    'tactile_shape': _int_list_from_env('tactile_shape', '32 64 3'),
     'action_magnitude': 1.0,
     'query_freq': 20,
     'explore_until': 300000,
@@ -56,7 +73,11 @@ BASE_FLAGS = {
 
 
 SWEEP_FLAGS = {
-    'seed': [0, 1, 2, 3, 4],
+    'seed': [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
+    'touch_gripper_type': [
+        # 'Robotiq85TactileGripper',
+        TOUCH_GRIPPER_TYPE,
+    ],
     'dyn_ent_lr': [0.0003],
     'init_dyn_ent_temperature': [1.0],
     'model_lr': [0.001],
@@ -65,15 +86,22 @@ SWEEP_FLAGS = {
     # 'num_model_heads': [7, 5, 1],
     # 'predict_reward': [1, 0],
     # 'backup_entropy': [1, 0],
+    'explore_until': [100000],
     'ensemble_disagreement_modalities': [
-        'state', 'latent', 'image', 'latent,state', 'latent,image',
-        'state,image', ''
+        'tactile'
     ],
     # 'mask_expl_critic': [1, 0],
     'libero_suite': ['libero_90'],
     'libero_task_id': [
-        58, 47
+        58,
     ],
+}
+
+
+GRIPPER_STATE_INDICES = {
+    'Robotiq85TactileGripper': [0, 3],
+    'PandaGripper': [0, 1],
+    'PiperGripper': [0, 1],
 }
 
 
@@ -83,6 +111,8 @@ def build_flags(project_name):
         flags = copy.deepcopy(BASE_FLAGS)
         flags['wandb_project'] = project_name
         flags.update(sweep_flags)
+        flags['gripper_state_indices'] = GRIPPER_STATE_INDICES[
+            flags['touch_gripper_type']]
         flags.setdefault('suffix', hash_dict(sweep_flags))
         yield flags
 
@@ -132,7 +162,13 @@ def main(args):
     pre_commands = [
         f'mkdir -p {shlex.quote(exp_dir)} {shlex.quote(slurm_dir)}',
     ]
-    env = {'EXP': exp_dir}
+    env = {
+        'EXP': exp_dir,
+        'MUJOCO_GL': 'egl',
+        'PYOPENGL_PLATFORM': 'egl',
+        'MUJOCO_EGL_DEVICE_ID': '0',
+        'XLA_PYTHON_CLIENT_PREALLOCATE': 'false',
+    }
 
     for flags in build_flags(args.project_name):
         command_list.append(

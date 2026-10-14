@@ -1,292 +1,146 @@
-<div align="center">
+# TacEx: Tactile Curiosity Drives Robot Interaction
 
-# DSRL for π₀: Diffusion Steering via Reinforcement Learning
+[Project website](https://kiten.me/projects/tacex/) · [Paper](https://arxiv.org/abs/2609.40134) · [PDF](https://arxiv.org/pdf/2609.40134) · [Video](https://youtu.be/IkMvuaCo5qw)
 
-## [[website](https://diffusion-steering.github.io)]      [[paper](https://arxiv.org/abs/2506.15799)]
+**Klemens Iten\*, Alexander Proshkin\*, Bhavya Sukhija\*, Stelian Coros, Andreas Krause, Pieter Abbeel, and Carmelo Sferrazza**
 
-</div>
+Code accompanying our paper "Tactile Curiosity Drives Robot Interaction", which was accepted to the 10th Conference on Robot Learning (CoRL 2026), Austin, Texas, USA. Our algorithm, TacEx, uses tactile predictive uncertainty to guide exploration in robotic manipulation, from reward-free data collection to steering frozen vision-language-action policies. In our simulations, this encourages contact-rich interaction and yields experience that can support downstream manipulation learning.
 
+This repository contains the JAX implementation for the paper's **diffusion-steering experiments on LIBERO**. Building on DSRL, a reinforcement learning policy selects the diffusion noise supplied to a frozen pretrained π₀ policy. Tactile observations inform the steering policy and critics while the VLA backbone remains fixed. The project website describes the broader TacEx study, including reward-free exploration and offline learning.
 
-## Overview
-This repository provides the official implementation for our paper: [Steering Your Diffusion Policy with Latent Space Reinforcement Learning](https://arxiv.org/abs/2506.15799) (CoRL 2025).
-
-Specifically, it contains a JAX-based implementation of DSRL (Diffusion Steering via Reinforcement Learning) for steering a pre-trained generalist policy, [π₀](https://github.com/Physical-Intelligence/openpi), across various environments, including:
-
-- **Simulation:** Libero, Aloha  
-- **Real Robot:** Franka
-
-If you find this repository useful for your research, please cite:
-
-```
-@article{wagenmaker2025steering,
-  author    = {Andrew Wagenmaker and Mitsuhiko Nakamoto and Yunchu Zhang and Seohong Park and Waleed Yagoub and Anusha Nagabandi and Abhishek Gupta and Sergey Levine},
-  title     = {Steering Your Diffusion Policy with Latent Space Reinforcement Learning},
-  journal   = {Conference on Robot Learning (CoRL)},
-  year      = {2025},
-}
-```
 
 ## Installation
-1. Create a conda environment:
-```
-conda create -n dsrl_pi0 python=3.11.11
-conda activate dsrl_pi0
-```
 
-2. Clone this repo with all submodules
-```
-git clone git@github.com:klemensiten/dsrl_pi0.git --recurse-submodules
+### 1. Clone the repository and submodules
+
+```bash
+git clone https://github.com/klemensiten/dsrl_pi0.git
 cd dsrl_pi0
+
+git submodule init
+# Submodules
+git config submodule.LIBERO.url https://github.com/nakamotoo/LIBERO.git
+git config submodule.openpi.url https://github.com/nakamotoo/openpi.git
+git config submodule.tactile_envs.url https://github.com/carlosferrazza/tactile_envs.git
+git submodule update --init --recursive
 ```
 
-3. Install all packages and dependencies
-```
-pip install -e .
-pip install -r requirements.txt
-pip install "jax[cuda12]==0.5.0"
+The submodules provide the DSRL-compatible openpi fork, LIBERO, and the tactile simulation assets and modified robosuite implementation. Keep the recorded revisions when reproducing experiments.
 
-# install openpi
-pip install -e openpi
-pip install -e openpi/packages/openpi-client
-
-# install Libero
-pip install -e LIBERO
-pip install torch==2.6.0 --index-url https://download.pytorch.org/whl/cpu # needed for libero
-
-# If LIBERO imports fail because of package nesting, use the local workaround:
-mv LIBERO libero
-find . \( -name '*.py' -o -name '*.sh' -o -name '*.yaml' -o -name '*.yml' -o -name '*.txt' \) -type f \
-  -exec perl -pi -e 's/libero\.libero(?!\.libero)/libero.libero.libero/g' {} +
-```
-
-## Training (Simulation)
-Libero
-```
-bash examples/scripts/run_libero.sh
-```
-Aloha
-```
-bash examples/scripts/run_aloha.sh
-```
-### Training Logs
-We provide sample W&B runs and logs: https://wandb.ai/mitsuhiko/DSRL_pi0_public
-
-## Training (Real)
-For real-world experiments, we use the remote hosting feature from pi0 (see [here](https://github.com/Physical-Intelligence/openpi/blob/main/docs/remote_inference.md)) which enables us to host the pi0 model on a higher-spec remote server, in case the robot's client machine is not powerful enough. 
-
-0. Setup Franka robot and install DROID package [[link](https://github.com/droid-dataset/droid.git)]
-
-1. [On the remote server] Host pi0 droid model on your remote server
-```
-cd openpi && python scripts/serve_policy.py --env=DROID
-```
-2. [On your robot client machine] Run DSRL
-```
-bash examples/scripts/run_real.sh
-```
-
-
-## Credits
-This repository is built upon [jaxrl2](https://github.com/ikostrikov/jaxrl2) and [PTR](https://github.com/Asap7772/PTR) repositories. 
-In case of any questions, bugs, suggestions or improvements, please feel free to contact me at nakamoto\[at\]berkeley\[dot\]edu 
-
-
-# Running LIBERO on a CPU-only machine (no GPU)
-
-This documents the setup/debugging steps needed to run the LIBERO experiments in `dsrl_pi0` on a machine without a CUDA-capable GPU.
-
----
-
-## 1. Create a clean Conda environment
-
-A broken / contaminated Conda environment caused issues initially (ROS packages leaking in, missing Python binary).
-
-Create a fresh env:
+### 2. Create an environment
 
 ```bash
-conda create -n dsrl python=3.11.11 -y
-conda activate dsrl
+conda create -n tacex python=3.11.11
+conda activate tacex
+python -m pip install --upgrade pip
 ```
 
-Verify:
+### 3. Install dependencies
+
+Run these commands from the repository root. PyTorch is used by the LIBERO/openpi stack; the reinforcement learning agents and π₀ use JAX.
 
 ```bash
-which python
-which pip
-python -V
-python -m pip list
+python -m pip install torch==2.6.0 \
+  --index-url https://download.pytorch.org/whl/cpu
+
+python -m pip install \
+  -r requirements.txt \
+  "jax[cuda12]==0.5.0" \
+  -e . \
+  -e openpi/packages/openpi-client \
+  -e openpi \
+  -e LIBERO \
+  -e tactile_envs \
+  -e tactile_envs/tactile_envs/envs/robosuite
+
+python -m pip check
 ```
 
-Expected:
-- Python from `~/miniconda3/envs/dsrl/...`
-- Pip from same env
-- only a few base packages installed
+### 4. Configure rendering and logging
 
----
-
-## 2. Install project dependencies
-
-From repo root:
+For GPU rendering:
 
 ```bash
-cd ~/git/dsrl_pi0
-python -m pip install -e .
-# Dont forget to install JAX as cpu only
-pip install "jax[cpu]==0.5.0"
-```
-
----
-
-## 3. Fix LIBERO import path
-
-LIBERO package structure requires adding the local `LIBERO/` directory to `PYTHONPATH`.
-
-From repo root:
-
-```bash
-export PYTHONPATH="$PWD/LIBERO:$PYTHONPATH"
-```
-
-Without this, imports like:
-
-```python
-from libero.libero import benchmark
-```
-
-fail.
-
----
-
-## 4. Install LIBERO editable
-
-```bash
-cd ~/git/dsrl_pi0/LIBERO
-python -m pip install -e .
-cd ..
-```
-
----
-
-## 5. CPU-only rendering setup (important)
-
-Default script assumed EGL / GPU rendering:
-
-```bash
-MUJOCO_GL=egl
-```
-
-This fails on machines without GPU support.
-
-### Use OSMesa instead
-
-```bash
-unset CUDA_VISIBLE_DEVICES
-unset MUJOCO_EGL_DEVICE_ID
-
-export MUJOCO_GL=osmesa
-export PYOPENGL_PLATFORM=osmesa
-```
-
----
-
-## 6. Install OSMesa / Mesa dependencies
-
-Needed for CPU offscreen rendering:
-
-```bash
-sudo apt update
-sudo apt install \
-    libosmesa6 \
-    libosmesa6-dev \
-    libgl1-mesa-dev \
-    libglu1-mesa-dev
-```
-
-## 7. Required environment variables for launch
-
-From repo root:
-
-```bash
-export PYTHONPATH="$PWD/LIBERO:$PYTHONPATH"
-export MUJOCO_GL=osmesa
-export PYOPENGL_PLATFORM=osmesa
-
-unset CUDA_VISIBLE_DEVICES
-unset MUJOCO_EGL_DEVICE_ID
-
-export EXP=./logs/DSRL_pi0_Libero
-export OPENPI_DATA_HOME=./openpi
-
+export MUJOCO_GL=egl
+export PYOPENGL_PLATFORM=egl
+export XLA_PYTHON_CLIENT_PREALLOCATE=false
+export EXP="$PWD/logs/tacex"
 mkdir -p "$EXP"
+
+wandb login
 ```
 
----
+The first training run downloads the pretrained `pi0_libero` checkpoint from openpi's public asset storage. Allow disk space for the checkpoint, replay data, logs, and videos. `OPENPI_DATA_HOME` can be set to choose the checkpoint cache directory.
 
-## 8. Launch training manually
+## Training on LIBERO
+
+After the submodule release prerequisites above are resolved, the following command configures one run with tactile disagreement, a Panda arm, and the Robotiq tactile gripper:
 
 ```bash
 python -m examples.launch_train_sim \
-  --algorithm pixel_sac \
+  --algorithm pixel_maxinfosac \
   --env libero \
-  --prefix dsrl_pi0_libero \
-  --wandb_project DSRL_pi0_Libero \
+  --libero_suite libero_90 \
+  --libero_task_id 58 \
+  --libero_robot Panda \
+  --dsrl_action_mode noise \
+  --prefix tacex_libero \
+  --wandb_project TacEx \
+  --seed 0 \
   --batch_size 256 \
   --discount 0.999 \
-  --seed 0 \
   --max_steps 500000 \
-  --eval_interval 10000 \
-  --log_interval 500 \
+  --checkpoint_interval 20000 \
+  --eval_interval 20000 \
+  --log_interval 1000 \
   --eval_episodes 10 \
   --multi_grad_step 20 \
   --start_online_updates 500 \
   --resize_image 64 \
-  --action_magnitude 1.0 \
   --query_freq 20 \
-  --hidden_dims 128
+  --action_magnitude 1.0 \
+  --hidden_dims 128 \
+  --add_tactile 1 \
+  --use_touch 1 \
+  --touch_gripper_type Robotiq85TactileGripper \
+  --tactile_shape 32 64 3 \
+  --gripper_state_indices 0 3 \
+  --ensemble_disagreement_modalities tactile \
+  --mask_expl_critic 1
 ```
 
----
+For replay-based learners, `max_steps` counts gradient updates; `multi_grad_step` controls updates per collected steering transition, and `query_freq` sets the action-chunk length. Logs separately record environment steps. Checkpoints are saved below `EXP` when `checkpoint_interval` is positive.
 
-## 11. Recommended fixes for `examples/scripts/run_libero.sh`
+For the DSRL-SAC baseline, use `--algorithm pixel_sac --add_tactile 0 --use_touch 0` and omit the tactile gripper, gripper-state indices, and disagreement options. The remaining training settings can stay the same.
 
-Update script to include:
+The scripts in `examples/scripts/` contain experimental sweeps and baselines, including PPO, DPPO, and summed-taxel-reward variants.
+
+To check tactile sensor registration and contact response without loading π₀, run the setup diagnostic after the submodule integration is available:
 
 ```bash
-export PYTHONPATH="$PWD/LIBERO:$PYTHONPATH"
-
-unset CUDA_VISIBLE_DEVICES
-unset MUJOCO_EGL_DEVICE_ID
-
-export MUJOCO_GL=osmesa
-export PYOPENGL_PLATFORM=osmesa
-
-export OPENPI_DATA_HOME=./openpi
-export EXP=./logs/$proj_name
-mkdir -p "$EXP"
+python -m examples.test_libero_touch_setup \
+  --mujoco_gl egl \
+  --output_dir ./logs/touch_setup
 ```
 
-Also prefer:
+The diagnostic saves a video, sensor measurements, and a summary. Its success flag checks tactile response; object lifting is reported separately.
 
-```bash
-python -m examples.launch_train_sim ...
+## Citation
+
+```bibtex
+@article{iten2026tactile,
+  title   = {Tactile Curiosity Drives Robot Interaction},
+  author  = {Iten, Klemens and Proshkin, Alexander and Sukhija, Bhavya
+             and Coros, Stelian and Krause, Andreas and Abbeel, Pieter
+             and Sferrazza, Carmelo},
+  journal = {arXiv preprint arXiv:2609.40134},
+  year    = {2026},
+  url     = {https://arxiv.org/abs/2609.40134}
+}
 ```
 
-instead of:
+## Acknowledgments
 
-```bash
-python3 examples/launch_train_sim.py
-```
+This implementation builds on [DSRL](https://diffusion-steering.github.io/) ([paper](https://arxiv.org/abs/2506.15799)), [MaxInfoRL](https://sukhijab.github.io/projects/maxinforl/), [openpi](https://github.com/Physical-Intelligence/openpi), [LIBERO](https://github.com/Lifelong-Robot-Learning/LIBERO), [tactile_envs](https://github.com/carlosferrazza/tactile_envs), and [jaxrl2](https://github.com/ikostrikov/jaxrl2). Please also cite the relevant upstream work when using these components.
 
----
-
-## 12. Remaining note: LIBERO datasets
-
-Warning observed:
-
-```bash
-[Warning]: datasets path ... does not exist!
-```
-
-This may require downloading LIBERO datasets separately depending on experiment.
-
-Check LIBERO documentation if dataset-related errors appear next.
+This research received support from NCCR Automation, a National Centre of Competence in Research funded by the Swiss National Science Foundation (grant 51NF40_225155), from the ONR Multidisciplinary University Research Initiative (MURI) (award N00014-22-1-2773), and from ELSA (European Lighthouse on Secure and Safe AI), funded by the European Union under grant agreement 101070617.

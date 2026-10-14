@@ -125,8 +125,24 @@ dmypy.json
 .pyre/
 
 .idea/
+.codex
 tmp/
 wandb_config.py
 logs/
 wandb/
 libero/
+jaxrl2/agents/maxinfodrqv2
+jaxrl2/agents/tactile_agents
+checkpoints/
+*.svg
+*.png
+*.pdf
+*.tex       
+*.pkl   
+*.csv 
+
+# directories
+tactile_envs/tactile_envs/assets/agilex_piper/*
+examples/paper/*
+tmp/
+tests/
