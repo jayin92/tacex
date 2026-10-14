@@ -1,6 +1,7 @@
 #!/bin/bash
 proj_name=DSRL_pi0_Libero
 device_id=1
+libero_robot="${libero_robot:-Panda}"
 
 export DISPLAY=:0
 export MUJOCO_GL=egl
@@ -17,6 +18,7 @@ pip install mujoco==3.3.1
 python -m examples.launch_train_sim \
 --algorithm pixel_sac \
 --env libero \
+--libero_robot "${libero_robot}" \
 --prefix dsrl_pi0_libero \
 --wandb_project ${proj_name} \
 --batch_size 256 \

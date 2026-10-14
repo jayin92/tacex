@@ -181,6 +181,9 @@ def _update_jit(
 
 class PixelMaxinfoSACLearner(Agent):
 
+    # A behavior-neutral extension point used by isolated critic ablations.
+    critic_cls = PixelMaxInfoCritic
+
     def __init__(self,
                  seed: int,
                  observations: Union[jnp.ndarray, DatasetDict],
@@ -305,7 +308,7 @@ class PixelMaxinfoSACLearner(Agent):
                                   batch_stats=actor_batch_stats)
         target_actor_params = copy.deepcopy(actor_params)
 
-        critic_def = PixelMaxInfoCritic(
+        critic_def = self.critic_cls(
             encoder=encoder_def,
             hidden_dims=hidden_dims,
             latent_dim=latent_dim,

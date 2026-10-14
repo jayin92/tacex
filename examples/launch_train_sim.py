@@ -20,7 +20,7 @@ if __name__ == '__main__':
     parser.add_argument('--eval_interval', default=5000, help='Eval interval.', type=int)
     parser.add_argument('--checkpoint_interval', default=-1, help='checkpoint interval.', type=int)
     parser.add_argument('--batch_size', default=16, help='Mini batch size.', type=int)
-    parser.add_argument('--max_steps', default=int(1e6), help='Number of training steps.', type=int)
+    parser.add_argument('--max_steps', default=int(1e6), help='Number of gradient steps for replay learners, or environment steps for PPO.', type=int)
     parser.add_argument('--add_states', default=1, help='whether to add low-dim states to the obervations', type=int)
     parser.add_argument('--add_tactile', default=0, help='whether to add tactile observations', type=int)
     parser.add_argument('--use_touch', default=0, help='whether to use the tactile robosuite gripper', type=int)
@@ -41,6 +41,18 @@ if __name__ == '__main__':
     parser.add_argument('--libero_robot', default='Panda', help='LIBERO robot name before scene prefixing, e.g. Panda or Piper.')
     parser.add_argument('--dsrl_action_mode', default='noise', choices=('noise', 'delta', 'both'), help='interpret learned DSRL action as diffusion noise, residual delta, or both')
     parser.add_argument('--residual_delta_fraction', default=0.1, help='fraction of finite env action range used as the residual delta bound', type=float)
+    parser.add_argument('--ppo_lr', default=3e-4, type=float)
+    parser.add_argument('--ppo_rollout_steps', default=512, type=int, help='On-policy query decisions collected before each PPO update.')
+    parser.add_argument('--ppo_num_epochs', default=10, type=int)
+    parser.add_argument('--ppo_num_minibatches', default=4, type=int)
+    parser.add_argument('--ppo_clip_epsilon', default=0.2, type=float)
+    parser.add_argument('--ppo_gae_lambda', default=0.95, type=float)
+    parser.add_argument('--ppo_value_loss_coef', default=0.5, type=float)
+    parser.add_argument('--ppo_entropy_coef', default=0.01, type=float)
+    parser.add_argument('--ppo_max_grad_norm', default=0.5, type=float)
+    parser.add_argument('--ppo_target_kl', default=0.03, type=float, help='Non-positive disables PPO KL early stopping.')
+    parser.add_argument('--ppo_init_log_std', default=0.0, type=float)
+    parser.add_argument('--ppo_normalize_advantages', default=1, type=int)
     
     train_args_dict = dict(
         actor_lr=1e-4,

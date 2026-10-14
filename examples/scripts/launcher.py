@@ -40,6 +40,7 @@ BASE_FLAGS = {
     'batch_size': 256,
     'discount': 0.999,
     'max_steps': 500000,
+    'checkpoint_interval': 20000,
     'eval_interval': 20000,
     'log_interval': 1000,
     'eval_episodes': 10,
@@ -72,7 +73,7 @@ BASE_FLAGS = {
 
 
 SWEEP_FLAGS = {
-    'seed': [0, 1, 2],
+    'seed': [0, 1, 2, 3, 4],
     'touch_gripper_type': [
         # 'Robotiq85TactileGripper',
         TOUCH_GRIPPER_TYPE,

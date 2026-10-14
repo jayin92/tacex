@@ -1,6 +1,24 @@
 #!/bin/bash
 proj_name=DSRL_pi0_Libero
 device_id=1
+libero_robot="${libero_robot:-Panda}"
+if [[ -z "${touch_gripper_type:-}" ]]; then
+  if [[ "${libero_robot}" == "Piper" ]]; then
+    touch_gripper_type="PiperGripper"
+  else
+    touch_gripper_type="Robotiq85TactileGripper"
+  fi
+fi
+if [[ -z "${tactile_shape:-}" ]]; then
+  tactile_shape="32 64 3"
+fi
+if [[ -z "${gripper_state_indices:-}" ]]; then
+  if [[ "${touch_gripper_type}" == "Robotiq85TactileGripper" ]]; then
+    gripper_state_indices="0 3"
+  else
+    gripper_state_indices="0 1"
+  fi
+fi
 
 export DISPLAY=:0
 export MUJOCO_GL=egl
@@ -19,6 +37,7 @@ pip install mujoco==3.3.1
 python -m examples.launch_train_sim \
   --algorithm pixel_maxinfosac \
   --env libero \
+  --libero_robot "${libero_robot}" \
   --prefix dsrl_pi0_libero_maxinfosac \
   --wandb_project "${proj_name}" \
   --batch_size 256 \
@@ -31,6 +50,11 @@ python -m examples.launch_train_sim \
   --multi_grad_step 20 \
   --start_online_updates 500 \
   --resize_image 64 \
+  --add_tactile 1 \
+  --use_touch 1 \
+  --touch_gripper_type "${touch_gripper_type}" \
+  --tactile_shape ${tactile_shape} \
+  --gripper_state_indices ${gripper_state_indices} \
   --action_magnitude 1.0 \
   --query_freq 20 \
   --hidden_dims 128 \

@@ -22,16 +22,25 @@ def _int_list_from_env(name, default):
     return [int(v) for v in value.replace(',', ' ').split()]
 
 
+# Change to 'Piper' to launch Piper LIBERO experiments.
+LIBERO_ROBOT = 'Panda'
+TOUCH_GRIPPER_TYPE = (
+    'PiperGripper' if LIBERO_ROBOT == 'Piper' else 'PandaGripper'
+)
+
+
 # base experiment.
 BASE_FLAGS = {
     'algorithm': 'pixel_maxinfosac_explorer',
     'env': 'libero',
+    'libero_robot': LIBERO_ROBOT,
     'prefix': 'dsrl_pi0_libero_maxinfo_explorer',
     'wandb_project': PROJECT_NAME,
     'batch_size': 256,
     'discount': 0.999,
     'max_steps': 500000,
     'eval_interval': 10000,
+    'checkpoint_interval': 10000,
     'log_interval': 500,
     'eval_episodes': 10,
     'multi_grad_step': 20,
@@ -67,7 +76,7 @@ SWEEP_FLAGS = {
     'seed': [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
     'touch_gripper_type': [
         # 'Robotiq85TactileGripper',
-        'PandaGripper',
+        TOUCH_GRIPPER_TYPE,
     ],
     'dyn_ent_lr': [0.0003],
     'init_dyn_ent_temperature': [1.0],
@@ -92,6 +101,7 @@ SWEEP_FLAGS = {
 GRIPPER_STATE_INDICES = {
     'Robotiq85TactileGripper': [0, 3],
     'PandaGripper': [0, 1],
+    'PiperGripper': [0, 1],
 }
 
 

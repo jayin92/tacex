@@ -758,7 +758,12 @@ def perform_control_eval(agent, env, i, variant, wandb_logger, agent_dp=None):
                         full_horizon_noise=True,
                     )
                 else:
-                    if hasattr(agent, 'collecting_exploration'):
+                    if hasattr(agent, 'sample_eval_actions'):
+                        # Diffusion-steering policies must retain stochastic
+                        # noise at evaluation, without advancing their rollout
+                        # RNG. Existing SAC behavior is unchanged below.
+                        learner_action = agent.sample_eval_actions(obs_dict)
+                    elif hasattr(agent, 'collecting_exploration'):
                         learner_action = agent.eval_actions(obs_dict)
                     else:
                         learner_action = agent.sample_actions(obs_dict)

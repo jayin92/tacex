@@ -15,8 +15,11 @@ import pathlib, copy
 
 import jax
 from jaxrl2.agents.pixel_maxinfosac.pixel_maxinfosac_learner import PixelMaxinfoSACLearner
+from jaxrl2.agents.pixel_maxinfosac_taxel_sum.pixel_maxinfosac_taxel_sum_learner import PixelMaxinfoSACTaxelSumLearner
 from jaxrl2.agents.pixel_maxinfosac_explorer.pixel_maxinfosac_explorer import PixelMaxinfoSACExplorer
+from jaxrl2.agents.pixel_ppo.pixel_ppo_learner import PixelPPOLearner
 from jaxrl2.agents.pixel_sac.pixel_sac_learner import PixelSACLearner
+from jaxrl2.agents.pixel_sac_taxel_reward.pixel_sac_taxel_reward_learner import PixelSACTaxelRewardLearner
 from jaxrl2.utils.general_utils import add_batch_dim
 import numpy as np
 
@@ -46,6 +49,7 @@ from examples.train_utils_sim import (
     infer_actual_action_dim,
     trajwise_alternating_training_loop,
 )
+from examples.train_utils_ppo import trajwise_ppo_training_loop
 import tensorflow as tf
 from jax.experimental.compilation_cache import compilation_cache
 
@@ -58,10 +62,28 @@ compilation_cache.initialize_cache(os.path.join(home_dir, 'jax_compilation_cache
 
 
 LEARNER_BY_ALGORITHM = {
+    'pixel_ppo': PixelPPOLearner,
     'pixel_sac': PixelSACLearner,
+    'pixel_sac_taxel_reward': PixelSACTaxelRewardLearner,
     'pixel_maxinfosac': PixelMaxinfoSACLearner,
+    'pixel_maxinfosac_taxel_sum': PixelMaxinfoSACTaxelSumLearner,
     'pixel_maxinfosac_explorer': PixelMaxinfoSACExplorer,
 }
+
+PPO_TRAIN_KWARGS = (
+    'ppo_lr',
+    'ppo_rollout_steps',
+    'ppo_num_epochs',
+    'ppo_num_minibatches',
+    'ppo_clip_epsilon',
+    'ppo_gae_lambda',
+    'ppo_value_loss_coef',
+    'ppo_entropy_coef',
+    'ppo_max_grad_norm',
+    'ppo_target_kl',
+    'ppo_init_log_std',
+    'ppo_normalize_advantages',
+)
 
 
 def _resolve_touch_gripper_type(libero_robot, touch_gripper_type):
@@ -98,6 +120,8 @@ def _make_agent(variant, sample_obs, sample_action):
 
     learner_cls = LEARNER_BY_ALGORITHM[algorithm]
     kwargs = dict(variant['train_kwargs'])
+    if algorithm == 'pixel_ppo':
+        kwargs.update({key: variant[key] for key in PPO_TRAIN_KWARGS})
     _normalize_ensemble_disagreement_modalities(kwargs)
 
     valid_kwargs = set(inspect.signature(learner_cls.__init__).parameters)
@@ -265,6 +289,11 @@ def main(variant):
         variant.max_timesteps = 400
         
     variant.dsrl_action_mode = get_dsrl_action_mode(variant)
+    algorithm = str(variant.algorithm).strip().lower()
+    if algorithm == 'pixel_ppo' and variant.dsrl_action_mode != 'noise':
+        raise ValueError(
+            'DSRL-PPO is implemented for diffusion-noise steering only; set '
+            '--dsrl_action_mode noise.')
     variant.actual_action_dim = infer_actual_action_dim(variant, env)
     action_low, action_high = get_env_action_bounds(env, variant.actual_action_dim)
     residual_delta_fraction = float(getattr(
@@ -308,9 +337,33 @@ def main(variant):
 
     agent = _make_agent(variant, sample_obs, sample_action)
 
-    online_buffer_size = variant.max_steps  // variant.multi_grad_step
-    online_replay_buffer = ReplayBuffer(dummy_env.observation_space, dummy_env.action_space, int(online_buffer_size))
-    replay_buffer = online_replay_buffer
-    replay_buffer.seed(variant.seed)
-    trajwise_alternating_training_loop(variant, agent, env, eval_env, online_replay_buffer, replay_buffer, wandb_logger, shard_fn=shard_fn, agent_dp=agent_dp)
+    if algorithm == 'pixel_ppo':
+        trajwise_ppo_training_loop(
+            variant,
+            agent,
+            env,
+            eval_env,
+            wandb_logger,
+            agent_dp=agent_dp,
+        )
+    else:
+        online_buffer_size = variant.max_steps // variant.multi_grad_step
+        online_replay_buffer = ReplayBuffer(
+            dummy_env.observation_space,
+            dummy_env.action_space,
+            int(online_buffer_size),
+        )
+        replay_buffer = online_replay_buffer
+        replay_buffer.seed(variant.seed)
+        trajwise_alternating_training_loop(
+            variant,
+            agent,
+            env,
+            eval_env,
+            online_replay_buffer,
+            replay_buffer,
+            wandb_logger,
+            shard_fn=shard_fn,
+            agent_dp=agent_dp,
+        )
  

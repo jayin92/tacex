@@ -125,6 +125,7 @@ dmypy.json
 .pyre/
 
 .idea/
+.codex
 tmp/
 wandb_config.py
 logs/
@@ -139,3 +140,9 @@ checkpoints/
 *.tex       
 *.pkl   
 *.csv 
+
+# directories
+tactile_envs/tactile_envs/assets/agilex_piper/*
+examples/paper/*
+tmp/
+tests/

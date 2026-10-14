@@ -13,7 +13,7 @@ from jaxrl2.utils.launch_util import (
 
 
 ENTITY = 'kiten'
-PROJECT_NAME = 'DSRL_pi0_Libero_May_26_17_30_Test_Touch_R5_AblateTouch'
+PROJECT_NAME = 'DSRL_pi0_Libero_May_27_23_59_Test_Touch_R7_Envs'
 MODULE_NAME = 'examples.launch_train_sim'
 
 
@@ -22,16 +22,26 @@ def _int_list_from_env(name, default):
     return [int(v) for v in value.replace(',', ' ').split()]
 
 
+# Change to 'Piper' to launch Piper LIBERO experiments.
+LIBERO_ROBOT = 'Panda'
+TOUCH_GRIPPER_TYPE = (
+    'PiperGripper' if LIBERO_ROBOT == 'Piper' else 'PandaGripper'
+)
+
+
 # base experiment.
 BASE_FLAGS = {
     'algorithm': 'pixel_maxinfosac',
     'env': 'libero',
+    'libero_robot': LIBERO_ROBOT,
+    'dsrl_action_mode': 'noise',
     'prefix': 'dsrl_pi0_libero_maxinfo',
     'wandb_project': PROJECT_NAME,
     'batch_size': 256,
     'discount': 0.999,
     'max_steps': 500000,
     'eval_interval': 20000,
+    'checkpoint_interval': 20000,
     'log_interval': 1000,
     'eval_episodes': 10,
     'multi_grad_step': 20,
@@ -65,7 +75,7 @@ BASE_FLAGS = {
 SWEEP_FLAGS_TOUCH = {
     'seed': [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
     'touch_gripper_type': [
-        'PandaGripper',
+        TOUCH_GRIPPER_TYPE,
     ],
     'dyn_ent_lr': [0.0003],
     'init_dyn_ent_temperature': [1.0],
@@ -85,14 +95,14 @@ SWEEP_FLAGS_TOUCH = {
     # 'mask_expl_critic': [1, 0],
     'libero_suite': ['libero_90'],
     'libero_task_id': [
-        58,
+        58,69,61,77,55,21,56,20
     ],
 }
 
 SWEEP_FLAGS_BASE = {
-    'seed': [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
+    'seed': [0, 1, 2, 3, 4,],
     'touch_gripper_type': [
-        'PandaGripper',
+        TOUCH_GRIPPER_TYPE,
     ],
     'dyn_ent_lr': [0.0003],
     'init_dyn_ent_temperature': [1.0],
@@ -102,35 +112,67 @@ SWEEP_FLAGS_BASE = {
     # 'num_model_heads': [7, 5, 1],
     # 'predict_reward': [1, 0],
     # 'backup_entropy': [1, 0],
-    'add_tactile': [0, 1],
     'ensemble_disagreement_modalities': [
-        'state', 'latent', 'image',
-        'latent,state', 'latent,image', 'state,image',
-        'latent,state,image',
+        'state',
+        'image',
+        'latent',
+        'image,latent',
     ],
     # 'mask_expl_critic': [1, 0],
     'libero_suite': ['libero_90'],
     'libero_task_id': [
-        58,
+        58, 69, 61, 77, 55, 21, 56, 20,
     ],
+}
+
+
+# The primary reviewer comparison keeps the learner's tactile observation fixed
+# and changes only which prediction channels drive curiosity. The optional
+# no-tactile-input profile is a stronger observation-level control; it must turn
+# off both flags so it does not silently instantiate a tactile gripper merely for
+# logging. Select it with --observation_profile no_tactile_input (or run both).
+OBSERVATION_PROFILES = {
+    'tactile_input': {
+        'add_tactile': 1,
+        'use_touch': 1,
+    },
+    'no_tactile_input': {
+        'add_tactile': 0,
+        'use_touch': 0,
+    },
 }
 
 
 GRIPPER_STATE_INDICES = {
     'Robotiq85TactileGripper': [0, 3],
     'PandaGripper': [0, 1],
+    'PiperGripper': [0, 1],
 }
 
 
-def build_flags(project_name):
-    for sweep_flags in dict_permutations(SWEEP_FLAGS_TOUCH) + dict_permutations(SWEEP_FLAGS_BASE):
-        flags = copy.deepcopy(BASE_FLAGS)
-        flags['wandb_project'] = project_name
-        flags.update(sweep_flags)
-        flags['gripper_state_indices'] = GRIPPER_STATE_INDICES[
-            flags['touch_gripper_type']]
-        flags.setdefault('suffix', hash_dict(sweep_flags))
-        yield flags
+def build_flags(project_name, observation_profile='tactile_input'):
+    if observation_profile == 'both':
+        input_profiles = list(OBSERVATION_PROFILES.values())
+    else:
+        try:
+            input_profiles = [OBSERVATION_PROFILES[observation_profile]]
+        except KeyError as exc:
+            valid_profiles = ', '.join((*OBSERVATION_PROFILES, 'both'))
+            raise ValueError(
+                f'Unknown observation profile {observation_profile!r}; '
+                f'choose one of: {valid_profiles}.') from exc
+
+    for input_profile in input_profiles:
+        for sweep_flags in dict_permutations(SWEEP_FLAGS_BASE):
+            flags = copy.deepcopy(BASE_FLAGS)
+            flags['wandb_project'] = project_name
+            flags.update(sweep_flags)
+            flags.update(input_profile)
+            flags['gripper_state_indices'] = GRIPPER_STATE_INDICES[
+                flags['touch_gripper_type']]
+            suffix_flags = {**sweep_flags, **input_profile}
+            flags.setdefault('suffix', hash_dict(suffix_flags))
+            yield flags
 
 
 def slug(value):
@@ -155,6 +197,15 @@ def parse_args():
     parser.add_argument('--gpu_type', type=str, default='rtx_4090')
     parser.add_argument('--mem', type=int, default=32000)
     parser.add_argument('--duration', type=str, default=None)
+    parser.add_argument(
+        '--observation_profile',
+        choices=(*OBSERVATION_PROFILES, 'both'),
+        default='tactile_input',
+        help=(
+            'tactile_input isolates the curiosity modality (reviewer-priority); '
+            'no_tactile_input removes tactile sensing from the learner and env; '
+            'both launches both controls.'),
+    )
     parser.add_argument('--mode', type=str, default='euler',
                         choices=['euler', 'local', 'local_async'])
     parser.add_argument('--long_run', default=True, action='store_true')
@@ -185,7 +236,7 @@ def main(args):
         'XLA_PYTHON_CLIENT_PREALLOCATE': 'false',
     }
 
-    for flags in build_flags(args.project_name):
+    for flags in build_flags(args.project_name, args.observation_profile):
         command_list.append(
             generate_base_command(
                 MODULE_NAME,
