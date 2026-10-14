@@ -4,8 +4,6 @@
 
 **Klemens Iten\*, Alexander Proshkin\*, Bhavya Sukhija\*, Stelian Coros, Andreas Krause, Pieter Abbeel, and Carmelo Sferrazza**
 
-![*LIBERO rollout with camera observations on the left and tactile force maps on the right*](dsrl-demo.mp4)
-
 Code accompanying our paper "Tactile Curiosity Drives Robot Interaction", which was accepted to the 10th Conference on Robot Learning (CoRL 2026), Austin, Texas, USA. Our algorithm, TacEx, uses tactile predictive uncertainty to guide exploration in robotic manipulation, from reward-free data collection to steering frozen vision-language-action policies. In our simulations, this encourages contact-rich interaction and yields experience that can support downstream manipulation learning.
 
 This repository contains the JAX implementation for the paper's **diffusion-steering experiments on LIBERO**. Building on DSRL, a reinforcement learning policy selects the diffusion noise supplied to a frozen pretrained π₀ policy. Tactile observations inform the steering policy and critics while the VLA backbone remains fixed. The project website describes the broader TacEx study, including reward-free exploration and offline learning.
