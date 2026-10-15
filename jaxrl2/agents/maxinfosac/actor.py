@@ -5,7 +5,7 @@ import jax.random
 
 from jaxrl.datasets import Batch
 from jaxrl.networks.common import InfoDict, Model, Params, PRNGKey
-from maxinforl.models.ensemble_model import EnsembleState, DeterministicEnsemble
+from jaxrl2.networks.ensemble_model import EnsembleState, DeterministicEnsemble
 
 
 def update(key: PRNGKey,

@@ -131,8 +131,6 @@ wandb_config.py
 logs/
 wandb/
 libero/
-jaxrl2/agents/maxinfodrqv2
-jaxrl2/agents/tactile_agents
 checkpoints/
 *.svg
 *.png
@@ -143,6 +141,15 @@ checkpoints/
 
 # directories
 tactile_envs/tactile_envs/assets/agilex_piper/*
-examples/paper/*
+examples/diffusion_steering/paper/*
+examples/diffusion_steering/plotting/*
+examples/diffusion_steering/tests/*
 tmp/
 tests/
+# Keep integration regressions while other local test artifacts remain ignored.
+!tests/
+tests/*
+!tests/test_exploration_integration.py
+!tests/test_ensemble_integration.py
+!tests/test_exploration_backends.py
+!tests/test_humanoid_backend.py

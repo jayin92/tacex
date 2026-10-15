@@ -7,16 +7,16 @@ import numpy as np
 import optax
 
 from jaxrl.agents.sac import temperature
-from maxinforl.agents.maxinfosac.actor import update as update_actor
-from maxinforl.agents.maxinfosac.critic import target_update
-from maxinforl.agents.maxinfosac.critic import update as update_critic
+from jaxrl2.agents.maxinfosac.actor import update as update_actor
+from jaxrl2.agents.maxinfosac.critic import target_update
+from jaxrl2.agents.maxinfosac.critic import update as update_critic
 from jaxrl.agents.sac.temperature import update as update_temp
 
 from jaxrl.datasets import Batch
 from jaxrl.networks import critic_net, policies
 from jaxrl.networks.common import InfoDict, Model, PRNGKey
 
-from maxinforl.models.ensemble_model import EnsembleState, DeterministicEnsemble, ProbabilisticEnsemble
+from jaxrl2.networks.ensemble_model import EnsembleState, DeterministicEnsemble, ProbabilisticEnsemble
 
 
 @functools.partial(jax.jit,
@@ -260,7 +260,8 @@ class MaxInfoSacLearner(object):
         else:
             model_type = DeterministicEnsemble
         ensemble = model_type(
-            model_kwargs={'hidden_dims': model_hidden_dims + (output_dim,)},
+            model_kwargs={'hidden_dims': model_hidden_dims + (output_dim,),
+                          'init_scale': jnp.sqrt(2)},
             optimizer=model_optimizer,
             num_heads=self.num_heads)
 

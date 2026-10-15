@@ -2,7 +2,7 @@ import functools
 
 import chex
 import jax.random
-from jaxrl2.networks import MLP
+from jaxrl2.networks.mlp import MLP
 import flax.linen as nn
 import flax
 from typing import Dict, Callable
@@ -42,7 +42,7 @@ class Normalizer:
     def reset(normalizer_state: NormalizerState) -> NormalizerState:
         return NormalizerState(
             mean=jnp.zeros_like(normalizer_state.mean),
-            std=jnp.ones(normalizer_state.std),
+            std=jnp.ones_like(normalizer_state.std),
             num_points=0,
         )
 
@@ -110,7 +110,7 @@ class DeterministicEnsemble(object):
 
         input_normalizer_state = NormalizerState(
             mean=jnp.zeros(input.shape[-1]),
-            std=jnp.ones_like(input.shape[-1]),
+            std=jnp.ones(input.shape[-1]),
             num_points=0,
         )
         output_normalizer_state = NormalizerState(
@@ -130,8 +130,6 @@ class DeterministicEnsemble(object):
             output_normalizer_state=output_normalizer_state,
             info_gain_normalizer_state=info_gain_normalizer_state,
         )
-        self._disg_weights = jnp.ones(out_size)
-
         opt_state = self.tx.init(vmapped_params)
         return EnsembleState(
             vmapped_params=vmapped_params,
@@ -237,8 +235,8 @@ class DeterministicEnsemble(object):
 
     def load(self, load_path: str, state: EnsembleState) -> EnsembleState:
         with open(load_path, 'rb') as f:
-            params = flax.serialization.from_bytes(state.params, f.read())
-        return state.replace(params=params)
+            params = flax.serialization.from_bytes(state.vmapped_params, f.read())
+        return state.replace(vmapped_params=params)
 
     @functools.partial(jax.jit, static_argnums=(0, 3))
     def get_info_gain(self, input, state: EnsembleState, update_normalizer: bool = False):
@@ -253,7 +251,7 @@ class DeterministicEnsemble(object):
             elif self.agg_info_gain == 'mean':
                 info_gain = jnp.log(1 + ratio).mean(axis=-1).reshape(-1, 1)
             elif self.agg_info_gain == 'max':
-                info_gain = jnp.log(1 + ratio).max(axis=-1).reshape(-1)
+                info_gain = jnp.log(1 + ratio).max(axis=-1).reshape(-1, 1)
             else:
                 raise NotImplementedError
         else:
@@ -263,7 +261,7 @@ class DeterministicEnsemble(object):
             elif self.agg_info_gain == 'mean':
                 info_gain = ep_std.mean(axis=-1).reshape(-1, 1)
             elif self.agg_info_gain == 'max':
-                info_gain = ep_std.max(axis=-1).reshape(-1)
+                info_gain = ep_std.max(axis=-1).reshape(-1, 1)
             else:
                 raise NotImplementedError
         if self.normalize_info_gain and update_normalizer:
@@ -283,6 +281,7 @@ class DeterministicEnsemble(object):
 
 class ProbabilisticEnsemble(DeterministicEnsemble):
     def __init__(self, model_kwargs: Dict, sig_min: float = 1e-3, sig_max: float = 1e2, *args, **kwargs):
+        model_kwargs = dict(model_kwargs)
         hidden_dims = list(model_kwargs['hidden_dims'])
         hidden_dims[-1] = 2 * hidden_dims[-1]
         hidden_dims = tuple(hidden_dims)
@@ -291,6 +290,7 @@ class ProbabilisticEnsemble(DeterministicEnsemble):
         self.sig_max = sig_max
         super().__init__(model_kwargs=model_kwargs, *args, **kwargs)
         self.learn_std = True
+        self._disg_weights = jnp.ones(hidden_dims[-1] // 2)
 
     def apply_single(self, input, params):
         out = self.model.apply(params, input)

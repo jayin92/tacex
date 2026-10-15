@@ -9,7 +9,7 @@ import numpy as np
 from jaxrl2.data.dataset import DatasetDict
 from jaxrl2.types import Params, PRNGKey
 import flax.linen as nn
-from typing import Any, Callable, Dict, Sequence, Union
+from typing import Any, Callable, Dict, Mapping, Sequence, Union
 
 # Helps to minimize CPU to GPU transfer.
 def _unpack(batch):
