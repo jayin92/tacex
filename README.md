@@ -63,6 +63,13 @@ python -m pip install \
 python -m pip check
 ```
 
+The training scripts load π₀ from `s3://openpi-assets/checkpoints/pi0_libero`, a bucket that no longer exists. Fetch the same checkpoint from GCS once; it lands in the cache path that S3 URL resolves to:
+
+```bash
+OPENPI_DATA_HOME=./openpi python -c "from openpi.shared import download; \
+  download.maybe_download('gs://openpi-assets/checkpoints/pi0_libero', gs={'token': 'anon'})"
+```
+
 ## Rendering and logging
 
 For GPU rendering:
@@ -131,6 +138,8 @@ python -m examples.diffusion_steering.launch_train_sim \
 ```
 
 For replay-based steering learners, `max_steps` counts gradient updates. `multi_grad_step` controls updates per stored steering transition, and `query_freq` sets the maximum action-chunk length. Logs separately record environment steps. Checkpoints are saved below `EXP` when `checkpoint_interval` is positive.
+
+To also feed the wrist force/torque sensor (the gripper's `force_ee`/`torque_ee`, symlog-squashed) to the learner, add `--add_ft 1`. Its `ft` modality can be used for curiosity on its own or alongside touch, e.g. `--ensemble_disagreement_modalities ft` or `tactile,ft`.
 
 For the DSRL-SAC baseline, use `--algorithm pixel_sac --add_tactile 0 --use_touch 0` and omit tactile gripper, gripper-state-index, and disagreement options. The scripts in `examples/diffusion_steering/scripts/` also provide tactile-input ablations, PPO/DPPO comparisons, and summed-taxel controls.
 

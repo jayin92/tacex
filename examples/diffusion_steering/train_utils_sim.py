@@ -14,6 +14,8 @@ DEFAULT_RESIDUAL_DELTA_FRACTION = 0.1
 DEFAULT_TACTILE_SHAPE = (32, 64, 3)
 TACTILE_SHAPE_BY_GRIPPER = {
 }
+EE_FT_OBS_KEY = 'robot0_ee_ft'
+EE_FT_DIM = 6  # wrist force (3) + torque (3), in the gripper's ft_frame
 
 def _quat2axisangle(quat):
     """
@@ -170,7 +172,9 @@ def obs_to_tactile(obs, variant):
             axis=-1,
         )
     else:
-        raise KeyError('LIBERO observation does not contain tactile data.')
+        raise KeyError(
+            'LIBERO observation does not contain tactile data; tactile '
+            'observations need --use_touch 1 (LiberoSensorObsWrapper(tactile=True)).')
 
     tactile = np.asarray(tactile, dtype=np.float32)
     if tactile.ndim == 3 and tactile.shape[0] == 3:
@@ -182,6 +186,84 @@ def obs_to_tactile(obs, variant):
             f'expected {expected_shape}. Set --tactile_shape H W C to match '
             f'the active gripper.')
     return tactile
+
+def read_ee_ft(env):
+    """Reads the wrist force/torque sensors of the first robot in a LIBERO env."""
+    robot = env.env.robots[0]
+    sensors = robot.gripper.important_sensors
+    if 'force_ee' not in sensors or 'torque_ee' not in sensors:
+        raise ValueError(
+            f'Gripper {type(robot.gripper).__name__} defines no force_ee/'
+            'torque_ee sensors, so --add_ft cannot be used with it.')
+    return np.concatenate((robot.ee_force, robot.ee_torque)).astype(np.float32)
+
+
+def read_gripper_tactile(env):
+    """Reads the left/right touch_grid sensors of the first robot in a LIBERO env.
+
+    Mirrors robosuite's SingleArmTactile observables: each finger pad is a
+    (3, H, W) force map reordered from zxy to xyz and squashed with symlog.
+    """
+    robot = env.env.robots[0]
+    sensors = robot.gripper.important_sensors
+    if 'touch_left' not in sensors or 'touch_right' not in sensors:
+        raise ValueError(
+            f'Gripper {type(robot.gripper).__name__} defines no touch_left/'
+            'touch_right sensors; use --use_touch 1 with a tactile gripper.')
+    pads = []
+    for side in ('touch_left', 'touch_right'):
+        data = np.asarray(robot.sim.data.sensor(sensors[side]).data, dtype=np.float32)
+        taxels = data.size // 3
+        rows = int(round(np.sqrt(taxels)))
+        if rows * rows != taxels:
+            raise ValueError(f'{sensors[side]} has {data.size} values; expected a square 3-channel grid.')
+        pad = data.reshape((3, rows, rows))[[1, 2, 0]]
+        pads.append(np.sign(pad) * np.log1p(np.abs(pad)))
+    return pads
+
+
+class LiberoSensorObsWrapper:
+    """Adds gripper sensor readings that LIBERO's observation dict leaves out.
+
+    LIBERO builds its robots as plain robosuite SingleArm, which exposes neither
+    the force_ee/torque_ee nor the touch_grid sensors, so they are read from the
+    simulator after every reset and step.
+    """
+
+    def __init__(self, env, ft=False, tactile=False):
+        self._env = env
+        self._ft = ft
+        self._tactile = tactile
+
+    def __getattr__(self, name):
+        return getattr(self._env, name)
+
+    def _add_sensors(self, obs):
+        if self._ft:
+            obs[EE_FT_OBS_KEY] = read_ee_ft(self._env)
+        if self._tactile:
+            obs['tactile_left'], obs['tactile_right'] = read_gripper_tactile(self._env)
+        return obs
+
+    def reset(self):
+        return self._add_sensors(self._env.reset())
+
+    def step(self, action):
+        obs, reward, done, info = self._env.step(action)
+        return self._add_sensors(obs), reward, done, info
+
+
+def obs_to_ft(obs, variant):
+    if variant.env != 'libero':
+        raise NotImplementedError('Force/torque observations are only wired for LIBERO.')
+    if EE_FT_OBS_KEY not in obs:
+        raise KeyError(
+            f'LIBERO observation has no {EE_FT_OBS_KEY}; wrap the env with '
+            'LiberoSensorObsWrapper(ft=True) when --add_ft=1.')
+    ft = np.asarray(obs[EE_FT_OBS_KEY], dtype=np.float32)
+    # Contact spikes reach hundreds of newtons while free-space readings are a
+    # few newtons, so squash with symlog like the tactile observations.
+    return np.sign(ft) * np.log1p(np.abs(ft))
 
 def tactile_to_heatmap(tactile, max_value, output_size):
     tactile = np.asarray(tactile, dtype=np.float32)
@@ -229,6 +311,8 @@ def obs_to_agent_input(obs, variant, curr_image=None):
     if getattr(variant, 'add_tactile', 0):
         tactile = obs_to_tactile(obs, variant)
         obs_dict['tactile'] = tactile[np.newaxis, ..., np.newaxis]
+    if getattr(variant, 'add_ft', 0):
+        obs_dict['ft'] = obs_to_ft(obs, variant)[np.newaxis]
     return obs_dict
 
 def get_dsrl_action_mode(variant):

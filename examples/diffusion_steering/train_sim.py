@@ -38,6 +38,8 @@ from functools import partial
 from examples.diffusion_steering.train_utils_sim import (
     DEFAULT_PI0_ACTION_HORIZON,
     DEFAULT_PI0_NOISE_DIM,
+    EE_FT_DIM,
+    LiberoSensorObsWrapper,
     action_bounds_to_config_list,
     compute_residual_delta_bounds,
     get_actual_action_dim,
@@ -200,6 +202,15 @@ class DummyEnv(gym.ObservationWrapper):
                 shape=tactile_shape,
                 dtype=np.float32,
             )
+        if getattr(variant, 'add_ft', 0):
+            if variant.env != 'libero':
+                raise NotImplementedError('Force/torque observations are only wired for LIBERO.')
+            obs_dict['ft'] = Box(
+                low=-np.inf,
+                high=np.inf,
+                shape=(EE_FT_DIM,),
+                dtype=np.float32,
+            )
         self.observation_space = Dict(obs_dict)
         pi0_noise_dim = int(getattr(variant, 'pi0_noise_dim', DEFAULT_PI0_NOISE_DIM))
         action_shape = get_dsrl_action_shape(
@@ -267,6 +278,12 @@ def main(variant):
             libero_robot=libero_robot,
             use_touch=bool(getattr(variant, 'use_touch', 0)),
             touch_gripper_type=touch_gripper_type)
+        add_ft = bool(getattr(variant, 'add_ft', 0))
+        use_touch = bool(getattr(variant, 'use_touch', 0))
+        if getattr(variant, 'add_tactile', 0) and not use_touch:
+            raise ValueError('--add_tactile 1 requires --use_touch 1 (a gripper with touch sensors).')
+        if add_ft or use_touch:
+            env = LiberoSensorObsWrapper(env, ft=add_ft, tactile=use_touch)
         eval_env = env
         variant.task_description = task_description
         print(

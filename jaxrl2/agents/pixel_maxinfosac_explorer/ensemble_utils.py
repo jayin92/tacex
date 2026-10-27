@@ -7,7 +7,7 @@ import numpy as np
 from jaxrl2.data.dataset import DatasetDict
 
 
-MODALITY_ORDER = ('latent', 'image', 'state', 'tactile')
+MODALITY_ORDER = ('latent', 'image', 'state', 'tactile', 'ft')
 
 
 def flatten_model_obs(observations: Union[DatasetDict, FrozenDict],
