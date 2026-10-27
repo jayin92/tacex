@@ -89,6 +89,8 @@ class PixelMaxInfoCritic(nn.Module):
             )(observations['tactile'], training=training,
               return_obs_embedding=True)
             modalities['tactile'] = tactile_obs
+        if 'ft' in observations:
+            modalities['ft'] = _flatten(observations['ft'])
 
         critic_replacements = {'pixels': latent}
         if 'tactile' in observations:

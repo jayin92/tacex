@@ -28,6 +28,7 @@ from libero.libero.envs import OffScreenRenderEnv
 
 from examples.diffusion_steering.train_utils_dppo import trajwise_dppo_training_loop
 from examples.diffusion_steering.train_utils_sim import (
+    LiberoSensorObsWrapper,
     action_bounds_to_config_list,
     get_env_action_bounds,
     infer_actual_action_dim,
@@ -75,6 +76,8 @@ def _make_libero_env(
         env_args["gripper_types"] = touch_gripper_type
     env = OffScreenRenderEnv(**env_args)
     env.seed(seed)
+    if use_touch:
+        env = LiberoSensorObsWrapper(env, tactile=True)
     return env
 
 

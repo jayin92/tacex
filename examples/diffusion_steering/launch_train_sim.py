@@ -22,6 +22,7 @@ if __name__ == '__main__':
     parser.add_argument('--max_steps', default=int(1e6), help='Number of gradient steps for replay learners, or environment steps for PPO.', type=int)
     parser.add_argument('--add_states', default=1, help='whether to add low-dim states to the obervations', type=int)
     parser.add_argument('--add_tactile', default=0, help='whether to add tactile observations', type=int)
+    parser.add_argument('--add_ft', default=0, help='whether to add wrist force/torque (gripper force_ee/torque_ee) observations', type=int)
     parser.add_argument('--use_touch', default=0, help='whether to use the tactile robosuite gripper', type=int)
     parser.add_argument('--touch_gripper_type', default='Robotiq85TactileGripper', help='robosuite gripper type to use when --use_touch=1')
     parser.add_argument('--tactile_shape', nargs=3, default=(32, 64, 3), type=int, help='image-style tactile observation shape H W C')
